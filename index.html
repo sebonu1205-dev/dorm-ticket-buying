@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>寮食堂 食券たのむ</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+
+  <!-- 1. 最初の画面 -->
+  <section id="view-home">
+    <h1>寮食堂 食券たのむ</h1>
+    <p class="lead">名前を入れて、あてはまる方を選んでください。</p>
+    <label>名前
+      <input id="name" maxlength="20" autocomplete="off" placeholder="例: たろう">
+    </label>
+    <div id="home-error" class="error"></div>
+    <button type="button" id="btn-resident" class="primary">寮生です</button>
+    <button type="button" id="btn-guest" class="secondary">寮生ではありません</button>
+  </section>
+
+  <!-- 2. パスワード画面 -->
+  <section id="view-pw" hidden>
+    <h1 id="pw-title"></h1>
+    <p id="pw-note" class="lead"></p>
+    <label>パスワード
+      <input id="pw-input" type="text" maxlength="30" autocomplete="off">
+    </label>
+    <p class="hint">※ 他のサービスと同じパスワードは使わないでください(簡易的な合言葉です)</p>
+    <div id="pw-error" class="error"></div>
+    <button type="button" id="btn-create" class="primary">部屋を作る</button>
+    <button type="button" id="btn-enter" class="secondary">入る</button>
+    <button type="button" id="btn-back" class="link">← 戻る</button>
+  </section>
+
+  <!-- 3. 注文画面(寮生ではない人) -->
+  <section id="view-order" hidden>
+    <h1>注文する</h1>
+    <p id="order-who" class="lead"></p>
+    <div id="menu"></div>
+    <div class="total-bar">合計 <strong id="order-total">0円</strong></div>
+    <div id="order-error" class="error"></div>
+    <button type="button" id="btn-submit" class="primary">この内容で頼む</button>
+    <button type="button" id="btn-order-back" class="link">← 最初に戻る</button>
+  </section>
+
+  <!-- 4. 注文完了 -->
+  <section id="view-done" hidden>
+    <h1>注文しました</h1>
+    <div id="done-summary" class="card"></div>
+    <button type="button" id="btn-again" class="secondary">もう一度注文する</button>
+    <button type="button" id="btn-done-home" class="link">最初に戻る</button>
+  </section>
+
+  <!-- 5. 寮生の画面 -->
+  <section id="view-dash" hidden>
+    <h1>みんなの注文</h1>
+    <p id="dash-who" class="lead"></p>
+    <h2>買う数の合計</h2>
+    <div id="dash-summary" class="card"></div>
+    <h2>人ごとの注文</h2>
+    <div id="dash-list"></div>
+    <p id="dash-updated" class="hint"></p>
+    <div id="dash-error" class="error"></div>
+    <button type="button" id="btn-dash-back" class="link">← 最初に戻る</button>
+  </section>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
