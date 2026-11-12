@@ -39,12 +39,12 @@
   <section id="view-order" hidden>
     <h1>注文する</h1>
     <p id="order-who" class="lead"></p>
-    <p class="hint">ボタンを押すと1枚ずつ増えます。</p>
+    <p class="hint">ボタンを押すと1枚ずつ増えます(1つの料理につき4枚まで。5回押すと0枚に戻ります)。</p>
     <div id="menu" class="menu-grid"></div>
     <h2>選んだもの</h2>
     <div id="order-summary" class="card"></div>
     <div id="order-error" class="error"></div>
-    <button type="button" id="btn-order-back" class="link">← 最初に戻る</button>
+    <button type="button" id="btn-leave-order" class="link">部屋から出る</button>
 
     <div class="sticky-bar">
       <div class="total-bar">合計 <strong id="order-total">0円</strong></div>
@@ -59,9 +59,10 @@
   <!-- 4. 注文完了 -->
   <section id="view-done" hidden>
     <h1>注文しました</h1>
+    <p id="done-pay" class="pay-note"></p>
     <div id="done-summary" class="card"></div>
     <button type="button" id="btn-again" class="secondary">もう一度注文する</button>
-    <button type="button" id="btn-done-home" class="link">最初に戻る</button>
+    <button type="button" id="btn-leave-done" class="link">部屋から出る</button>
   </section>
 
   <!-- 5. 寮生の画面 -->
@@ -74,7 +75,7 @@
     <div id="dash-list"></div>
     <p id="dash-updated" class="hint"></p>
     <div id="dash-error" class="error"></div>
-    <button type="button" id="btn-dash-back" class="link">← 最初に戻る</button>
+    <button type="button" id="btn-leave-dash" class="link">部屋から出る</button>
   </section>
 
 </main>

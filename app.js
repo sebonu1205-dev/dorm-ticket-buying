@@ -4,10 +4,39 @@
 
   const $ = (id) => document.getElementById(id);
   const VIEWS = ["home", "pw", "order", "done", "dash"];
-  const MAX_QTY = 20;
-  const state = { role: null, name: "", password: "", cart: {}, history: [], timer: null };
+  const MAX_QTY = 4;
+  const state = { role: null, name: "", password: "", cart: {}, history: [], owner: "", timer: null };
 
   const yen = (n) => n.toLocaleString("ja-JP") + "円";
+
+  // ---- 部屋に入った状態を保存(退出ボタンを押すまで残る) ----
+  const SESSION_KEY = "dorm_session";
+  function saveSession(owner) {
+    try {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({
+        role: state.role, name: state.name, password: state.password, owner: owner
+      }));
+    } catch (e) {}
+  }
+  function clearSession() {
+    try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+  }
+  function loadSession() {
+    try {
+      const s = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+      if (s && (s.role === "resident" || s.role === "guest") && s.name && s.password) return s;
+    } catch (e) {}
+    return null;
+  }
+  function leaveRoom() {
+    if (!confirm("部屋から出ますか?(もう一度入るにはパスワードが必要です)")) return;
+    clearSession();
+    state.role = null;
+    state.password = "";
+    state.cart = {};
+    state.history = [];
+    show("home");
+  }
 
   function el(tag, cls, text) {
     const e = document.createElement(tag);
@@ -79,6 +108,7 @@
     const { error } = await sb.rpc("create_room", { p_owner: state.name, p_password: pw });
     if (error) { $("pw-error").textContent = errorText(error); return; }
     state.password = pw;
+    saveSession(state.name);
     openDash();
   };
 
@@ -89,12 +119,14 @@
     if (error) { $("pw-error").textContent = errorText(error); return; }
     if (!data) { $("pw-error").textContent = "パスワードが違います。"; return; }
     state.password = pw;
+    saveSession(data);
     if (state.role === "resident") openDash();
     else openOrder(data);
   };
 
   // ---------- 3. 注文画面 ----------
   function openOrder(ownerName) {
+    state.owner = ownerName;
     state.cart = {};
     state.history = [];
     $("order-who").textContent = ownerName + "さんの部屋 / あなた: " + state.name;
@@ -109,9 +141,14 @@
 
   function addItem(id) {
     const now = state.cart[id] || 0;
-    if (now >= MAX_QTY) return;
-    state.cart[id] = now + 1;
-    state.history.push(id);
+    if (now >= MAX_QTY) {
+      // 上限のあとにもう一度押すと0枚に戻る
+      state.cart[id] = 0;
+      state.history = state.history.filter((h) => h !== id);
+    } else {
+      state.cart[id] = now + 1;
+      state.history.push(id);
+    }
     renderMenu();
   }
 
@@ -200,16 +237,17 @@
     const t = el("div", "row");
     t.append(el("span", "name", "合計"), el("span", "name", yen(total)));
     box.append(t);
+    $("done-pay").textContent = state.owner + "に" + yen(total) + "渡してください";
     show("done");
   };
 
-  $("btn-order-back").onclick = () => show("home");
+  $("btn-leave-order").onclick = leaveRoom;
   $("btn-again").onclick = () => {
     $("order-error").textContent = "";
     clearCart();
     show("order");
   };
-  $("btn-done-home").onclick = () => show("home");
+  $("btn-leave-done").onclick = leaveRoom;
 
   // ---------- 5. 寮生の画面 ----------
   function openDash() {
@@ -269,7 +307,17 @@
     });
   }
 
-  $("btn-dash-back").onclick = () => show("home");
+  $("btn-leave-dash").onclick = leaveRoom;
 
   renderMenu();
+
+  // 前回入った部屋が残っていれば、そのまま戻る
+  const saved = loadSession();
+  if (saved) {
+    state.role = saved.role;
+    state.name = saved.name;
+    state.password = saved.password;
+    if (saved.role === "resident") openDash();
+    else openOrder(saved.owner || "");
+  }
 })();

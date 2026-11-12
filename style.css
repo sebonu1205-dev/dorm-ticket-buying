@@ -107,3 +107,11 @@ button:disabled { opacity: 0.4; cursor: default; }
 .bar-actions { display: flex; gap: 8px; }
 .bar-actions button { width: auto; flex: 1; margin: 0; padding: 12px 6px; font-size: 0.95rem; }
 .bar-actions .primary { flex: 2; }
+
+/* ---- 注文後の支払い案内 ---- */
+.pay-note {
+  margin: 0 0 14px; padding: 14px;
+  border: 2px solid #c8501e; border-radius: 10px;
+  background: #fff3e6;
+  font-size: 1.15rem; font-weight: 700;
+}
