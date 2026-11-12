@@ -1,8 +1,8 @@
 // ここだけ自分で書き換えてください
 window.APP_CONFIG = {
   // Supabase の Project Settings > API にある値
-  SUPABASE_URL: "https://xxxxxxxx.supabase.co",
-  SUPABASE_ANON_KEY: "ここにanon publicキーを貼る",
+  SUPABASE_URL: "https://clvklweqaradoyfqjaki.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_u2nX8tbnUkrZFsn_wMiDJw_g8dPoJxi",
 
   // 食堂のメニュー(id は重複しない文字列、price は円)
   MENU: [
