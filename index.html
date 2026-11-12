@@ -39,11 +39,21 @@
   <section id="view-order" hidden>
     <h1>注文する</h1>
     <p id="order-who" class="lead"></p>
-    <div id="menu"></div>
-    <div class="total-bar">合計 <strong id="order-total">0円</strong></div>
+    <p class="hint">ボタンを押すと1枚ずつ増えます。</p>
+    <div id="menu" class="menu-grid"></div>
+    <h2>選んだもの</h2>
+    <div id="order-summary" class="card"></div>
     <div id="order-error" class="error"></div>
-    <button type="button" id="btn-submit" class="primary">この内容で頼む</button>
     <button type="button" id="btn-order-back" class="link">← 最初に戻る</button>
+
+    <div class="sticky-bar">
+      <div class="total-bar">合計 <strong id="order-total">0円</strong></div>
+      <div class="bar-actions">
+        <button type="button" id="btn-undo" class="secondary">ひとつ戻す</button>
+        <button type="button" id="btn-clear" class="secondary">全部消す</button>
+        <button type="button" id="btn-submit" class="primary">頼む</button>
+      </div>
+    </div>
   </section>
 
   <!-- 4. 注文完了 -->

@@ -4,7 +4,8 @@
 
   const $ = (id) => document.getElementById(id);
   const VIEWS = ["home", "pw", "order", "done", "dash"];
-  const state = { role: null, name: "", password: "", cart: {}, timer: null };
+  const MAX_QTY = 20;
+  const state = { role: null, name: "", password: "", cart: {}, history: [], timer: null };
 
   const yen = (n) => n.toLocaleString("ja-JP") + "円";
 
@@ -30,7 +31,7 @@
     if (m.includes("password_too_short")) return "パスワードは4文字以上にしてください。";
     if (m.includes("name_required")) return "名前を入力してください。";
     if (m.includes("room_not_found")) return "部屋が見つかりません。パスワードを確認してください。";
-    return "通信に失敗しました。時間をおいてもう一度試してください。";
+    return "通信に失敗しました。時間をおいてもう一度試してください。" + (m ? "(" + m + ")" : "");
   }
 
   // ---------- 1. 最初の画面 ----------
@@ -95,6 +96,7 @@
   // ---------- 3. 注文画面 ----------
   function openOrder(ownerName) {
     state.cart = {};
+    state.history = [];
     $("order-who").textContent = ownerName + "さんの部屋 / あなた: " + state.name;
     $("order-error").textContent = "";
     renderMenu();
@@ -105,9 +107,24 @@
     return cfg.MENU.reduce((sum, m) => sum + m.price * (state.cart[m.id] || 0), 0);
   }
 
-  function changeQty(id, delta) {
-    const next = Math.max(0, Math.min(20, (state.cart[id] || 0) + delta));
-    state.cart[id] = next;
+  function addItem(id) {
+    const now = state.cart[id] || 0;
+    if (now >= MAX_QTY) return;
+    state.cart[id] = now + 1;
+    state.history.push(id);
+    renderMenu();
+  }
+
+  function undo() {
+    const id = state.history.pop();
+    if (!id) return;
+    state.cart[id] = Math.max(0, (state.cart[id] || 0) - 1);
+    renderMenu();
+  }
+
+  function clearCart() {
+    state.cart = {};
+    state.history = [];
     renderMenu();
   }
 
@@ -115,27 +132,45 @@
     const box = $("menu");
     box.textContent = "";
     cfg.MENU.forEach((m) => {
-      const row = el("div", "menu-row");
-      const info = el("div", "menu-info");
-      info.append(el("div", "menu-name", m.name), el("div", "menu-price", yen(m.price)));
+      const qty = state.cart[m.id] || 0;
+      const btn = el("button", "vm-btn" + (qty > 0 ? " selected" : ""));
+      btn.type = "button";
 
-      const ctl = el("div", "qty");
-      const minus = el("button", "qty-btn", "−");
-      minus.type = "button";
-      minus.onclick = () => changeQty(m.id, -1);
-      const num = el("span", "qty-num", String(state.cart[m.id] || 0));
-      const plus = el("button", "qty-btn", "+");
-      plus.type = "button";
-      plus.onclick = () => changeQty(m.id, 1);
-      ctl.append(minus, num, plus);
+      const label = el("div", "vm-label");
+      const name = el("div", "vm-name", m.name);
+      name.style.background = m.bg || "#f3f6ee";
+      name.style.color = m.fg || "#222";
+      label.append(name, el("div", "vm-price", yen(m.price)));
+      btn.append(label, el("div", "vm-slot"));
+      if (qty > 0) btn.append(el("div", "vm-badge", String(qty)));
 
-      row.append(info, ctl);
-      box.append(row);
+      btn.onclick = () => addItem(m.id);
+      box.append(btn);
     });
+
+    const sum = $("order-summary");
+    sum.textContent = "";
+    const picked = cfg.MENU.filter((m) => (state.cart[m.id] || 0) > 0);
+    if (picked.length === 0) {
+      sum.append(el("div", "empty", "まだ選んでいません。"));
+    } else {
+      picked.forEach((m) => {
+        const q = state.cart[m.id];
+        const r = el("div", "row");
+        r.append(el("span", "", m.name + " × " + q), el("span", "", yen(m.price * q)));
+        sum.append(r);
+      });
+    }
+
     const total = cartTotal();
     $("order-total").textContent = yen(total);
     $("btn-submit").disabled = total === 0;
+    $("btn-undo").disabled = state.history.length === 0;
+    $("btn-clear").disabled = total === 0;
   }
+
+  $("btn-undo").onclick = undo;
+  $("btn-clear").onclick = clearCart;
 
   $("btn-submit").onclick = async () => {
     const items = cfg.MENU
@@ -170,9 +205,8 @@
 
   $("btn-order-back").onclick = () => show("home");
   $("btn-again").onclick = () => {
-    state.cart = {};
     $("order-error").textContent = "";
-    renderMenu();
+    clearCart();
     show("order");
   };
   $("btn-done-home").onclick = () => show("home");
