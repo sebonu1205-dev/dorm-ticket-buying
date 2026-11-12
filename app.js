@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
   const VIEWS = ["home", "pw", "order", "done", "dash"];
   const MAX_QTY = 4;
-  const state = { role: null, name: "", password: "", cart: {}, history: [], owner: "", timer: null };
+  const state = { role: null, name: "", password: "", cart: {}, history: [], owner: "", timer: null, lastSig: null, dragging: false };
 
   const yen = (n) => n.toLocaleString("ja-JP") + "円";
 
@@ -44,6 +44,7 @@
     state.password = "";
     state.cart = {};
     state.history = [];
+    state.lastSig = null;
     show("home");
   }
 
@@ -69,6 +70,7 @@
     if (m.includes("password_too_short")) return "パスワードは4文字以上にしてください。";
     if (m.includes("name_required")) return "名前を入力してください。";
     if (m.includes("room_not_found")) return "部屋が見つかりません。パスワードを確認してください。";
+    if (m.includes("delete_customer_orders")) return "削除用のSQLがまだ実行されていません。supabase_add_delete.sql をSupabaseで実行してください。";
     return "通信に失敗しました。時間をおいてもう一度試してください。" + (m ? "(" + m + ")" : "");
   }
 
@@ -262,6 +264,7 @@
   function openDash() {
     $("dash-who").textContent = "寮生: " + state.name;
     $("dash-error").textContent = "";
+    state.lastSig = null;
     show("dash");
     loadOrders();
     state.timer = setInterval(loadOrders, 5000);
@@ -271,10 +274,97 @@
     const { data, error } = await sb.rpc("get_orders", { p_password: state.password });
     if (error) { $("dash-error").textContent = errorText(error); return; }
     $("dash-error").textContent = "";
-    renderDash(data || []);
+    const rows = data || [];
+    const sig = JSON.stringify(rows);
+    // 中身が変わっていない間や、スライド操作中は画面を作り直さない
+    if (!state.dragging && sig !== state.lastSig) {
+      state.lastSig = sig;
+      renderDash(rows);
+    }
     const now = new Date();
     $("dash-updated").textContent =
       "5秒ごとに自動で更新(最終更新 " + now.toLocaleTimeString("ja-JP") + ")";
+  }
+
+  // ---- チェック済みの枠を横にスライドして削除 ----
+  function enableSwipe(card, onDelete) {
+    const THRESHOLD = 110;
+    let startX = 0, startY = 0, dx = 0;
+    let active = false, moving = false, justDragged = false;
+
+    card.style.touchAction = "pan-y";
+
+    card.addEventListener("pointerdown", (e) => {
+      if (!card.classList.contains("paid")) return;
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      startX = e.clientX;
+      startY = e.clientY;
+      dx = 0;
+      active = true;
+      moving = false;
+    });
+
+    card.addEventListener("pointermove", (e) => {
+      if (!active) return;
+      dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (!moving) {
+        if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { active = false; return; }
+        if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+          moving = true;
+          state.dragging = true;
+          try { card.setPointerCapture(e.pointerId); } catch (err) {}
+          card.style.transition = "none";
+        } else {
+          return;
+        }
+      }
+      card.style.transform = "translateX(" + dx + "px)";
+      card.style.opacity = String(Math.max(0.25, 0.55 - Math.abs(dx) / 500));
+    });
+
+    function finish() {
+      if (!active) return;
+      active = false;
+      if (!moving) return;
+      moving = false;
+      justDragged = true;
+      setTimeout(() => { justDragged = false; }, 60);
+      card.style.transition = "transform 0.18s, opacity 0.18s";
+      if (Math.abs(dx) >= THRESHOLD) {
+        card.style.transform = "translateX(" + (dx > 0 ? 600 : -600) + "px)";
+        card.style.opacity = "0";
+        setTimeout(() => { state.dragging = false; onDelete(); }, 180);
+      } else {
+        card.style.transform = "";
+        card.style.opacity = "";
+        state.dragging = false;
+      }
+    }
+    card.addEventListener("pointerup", finish);
+    card.addEventListener("pointercancel", finish);
+
+    // スライドの直後に、チェックが切り替わってしまうのを防ぐ
+    card.addEventListener("click", (e) => {
+      if (justDragged) { e.preventDefault(); e.stopPropagation(); }
+    }, true);
+  }
+
+  async function deleteCustomer(name) {
+    const { error } = await sb.rpc("delete_customer_orders", {
+      p_password: state.password,
+      p_customer: name
+    });
+    state.lastSig = null;
+    if (error) {
+      await loadOrders();
+      $("dash-error").textContent = errorText(error);
+      return;
+    }
+    const map = loadPaid();
+    delete map[name];
+    savePaid(map);
+    loadOrders();
   }
 
   function itemsText(items) {
@@ -342,7 +432,8 @@
       );
 
       const detail = Object.keys(grp.items).map((n) => n + " × " + grp.items[n]).join("、");
-      card.append(label, el("div", "sub", detail));
+      card.append(label, el("div", "sub", detail), el("div", "swipe-hint", "← 横にスライドして削除 →"));
+      enableSwipe(card, () => deleteCustomer(grp.name));
       listBox.append(card);
     });
   }

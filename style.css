@@ -127,3 +127,9 @@ input[type="checkbox"] {
 .pay-row + .sub { margin: 4px 0 0 40px; }
 .card.paid { opacity: 0.55; }
 .card.paid .pay-row .name { text-decoration: line-through; }
+
+/* ---- スライドで削除 ---- */
+#dash-list { overflow-x: hidden; }
+#dash-list .card { user-select: none; -webkit-user-select: none; }
+.swipe-hint { display: none; margin: 6px 0 0 40px; font-size: 0.8rem; color: #888; }
+.card.paid .swipe-hint { display: block; }
