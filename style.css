@@ -115,3 +115,15 @@ button:disabled { opacity: 0.4; cursor: default; }
   background: #fff3e6;
   font-size: 1.15rem; font-weight: 700;
 }
+
+/* ---- 寮生画面: もらったかどうかのチェック ---- */
+input[type="checkbox"] {
+  width: 28px; height: 28px; margin: 0; padding: 0; flex: none;
+  accent-color: #c8501e;
+}
+.pay-row { display: flex; align-items: center; gap: 12px; margin: 0; font-weight: 700; cursor: pointer; }
+.pay-row .name { flex: 1; }
+.pay-row .pay-amount { font-size: 1.15rem; font-weight: 700; }
+.pay-row + .sub { margin: 4px 0 0 40px; }
+.card.paid { opacity: 0.55; }
+.card.paid .pay-row .name { text-decoration: line-through; }

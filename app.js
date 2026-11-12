@@ -28,6 +28,15 @@
     } catch (e) {}
     return null;
   }
+  // ---- 「お金をもらった」チェックの保存(この端末の中だけ) ----
+  function paidKey() { return "dorm_paid_" + state.password; }
+  function loadPaid() {
+    try { return JSON.parse(localStorage.getItem(paidKey()) || "{}") || {}; } catch (e) { return {}; }
+  }
+  function savePaid(map) {
+    try { localStorage.setItem(paidKey(), JSON.stringify(map)); } catch (e) {}
+  }
+
   function leaveRoom() {
     if (!confirm("部屋から出ますか?(もう一度入るにはパスワードが必要です)")) return;
     clearSession();
@@ -298,11 +307,42 @@
     g.append(el("span", "name", "合計金額"), el("span", "name", yen(grand)));
     sumBox.append(g);
 
+    // 同じ名前の注文は1つの枠にまとめる
+    const groups = new Map();
     orders.forEach((o) => {
-      const card = el("div", "card");
-      const head = el("div", "row");
-      head.append(el("span", "name", o.customer_name), el("span", "name", yen(o.total)));
-      card.append(head, el("div", "sub", itemsText(o.items)));
+      if (!groups.has(o.customer_name)) {
+        groups.set(o.customer_name, { name: o.customer_name, total: 0, items: {} });
+      }
+      const grp = groups.get(o.customer_name);
+      grp.total += o.total;
+      o.items.forEach((it) => { grp.items[it.name] = (grp.items[it.name] || 0) + it.qty; });
+    });
+
+    const paid = loadPaid();
+    groups.forEach((grp) => {
+      // チェック時の金額と今の合計が同じときだけ「もらった」扱い(追加注文があればチェックが外れる)
+      const isPaid = paid[grp.name] === grp.total;
+      const card = el("div", "card" + (isPaid ? " paid" : ""));
+
+      const label = el("label", "pay-row");
+      const check = el("input");
+      check.type = "checkbox";
+      check.checked = isPaid;
+      check.onchange = () => {
+        const map = loadPaid();
+        if (check.checked) map[grp.name] = grp.total;
+        else delete map[grp.name];
+        savePaid(map);
+        card.classList.toggle("paid", check.checked);
+      };
+      label.append(
+        check,
+        el("span", "name", grp.name + "から"),
+        el("span", "pay-amount", yen(grp.total))
+      );
+
+      const detail = Object.keys(grp.items).map((n) => n + " × " + grp.items[n]).join("、");
+      card.append(label, el("div", "sub", detail));
       listBox.append(card);
     });
   }
