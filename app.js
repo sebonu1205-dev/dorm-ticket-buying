@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
   const VIEWS = ["home", "pw", "order", "done", "dash"];
   const MAX_QTY = 4;
-  const state = { role: null, name: "", password: "", cart: {}, history: [], owner: "", timer: null, lastSig: null, dragging: false };
+  const state = { role: null, name: "", password: "", cart: {}, history: [], owner: "", timer: null, lastSig: null, dragging: false, days: new Map(), members: null, blocked: null, calMonth: null, sheet: null, tab: "today" };
 
   const yen = (n) => n.toLocaleString("ja-JP") + "円";
 
@@ -37,6 +37,17 @@
     try { localStorage.setItem(paidKey(), JSON.stringify(map)); } catch (e) {}
   }
 
+  // 寮生に退出させられたとき(注文する人の画面から、最初の画面へ戻す)
+  function kickedOut() {
+    clearSession();
+    state.role = null;
+    state.password = "";
+    state.cart = {};
+    state.history = [];
+    show("home");
+    $("home-error").textContent = "この部屋から退出させられました。";
+  }
+
   function leaveRoom() {
     if (!confirm("部屋から出ますか?(もう一度入るにはパスワードが必要です)")) return;
     clearSession();
@@ -45,6 +56,12 @@
     state.cart = {};
     state.history = [];
     state.lastSig = null;
+    state.sheet = null;
+    state.days = new Map();
+    state.members = null;
+    state.blocked = null;
+    $("sheet").hidden = true;
+    $("dash-blocked").hidden = true;
     show("home");
   }
 
@@ -70,6 +87,9 @@
     if (m.includes("password_too_short")) return "パスワードは4文字以上にしてください。";
     if (m.includes("name_required")) return "名前を入力してください。";
     if (m.includes("room_not_found")) return "部屋が見つかりません。パスワードを確認してください。";
+    if (/join_room|get_members|delete_orders/.test(m)) return "新しいSQLがまだ実行されていません。supabase_add_calendar.sql をSupabaseで実行してください。";
+    if (/kick_member|unblock_member|get_blocked/.test(m)) return "新しいSQLがまだ実行されていません。supabase_add_kick.sql をSupabaseで実行してください。";
+    if (m.includes("kicked")) return "この部屋から退出させられました。";
     if (m.includes("delete_customer_orders")) return "削除用のSQLがまだ実行されていません。supabase_add_delete.sql をSupabaseで実行してください。";
     return "通信に失敗しました。時間をおいてもう一度試してください。" + (m ? "(" + m + ")" : "");
   }
@@ -129,6 +149,13 @@
     const { data, error } = await sb.rpc("enter_room", { p_password: pw });
     if (error) { $("pw-error").textContent = errorText(error); return; }
     if (!data) { $("pw-error").textContent = "パスワードが違います。"; return; }
+    if (state.role !== "resident") {
+      const j = await sb.rpc("join_room", { p_password: pw, p_name: state.name });
+      if (j.error && String(j.error.message || "").includes("kicked")) {
+        $("pw-error").textContent = "この部屋には入れません。寮生に退出させられています。";
+        return;
+      }
+    }
     state.password = pw;
     saveSession(data);
     if (state.role === "resident") openDash();
@@ -144,6 +171,7 @@
     $("order-error").textContent = "";
     renderMenu();
     show("order");
+    syncMembers();
   }
 
   function cartTotal() {
@@ -234,6 +262,7 @@
       p_total: total
     });
     if (error) {
+      if (String(error.message || "").includes("kicked")) { kickedOut(); return; }
       $("order-error").textContent = errorText(error);
       $("btn-submit").disabled = false;
       return;
@@ -257,33 +286,302 @@
     $("order-error").textContent = "";
     clearCart();
     show("order");
+    syncMembers();
   };
   $("btn-leave-done").onclick = leaveRoom;
 
   // ---------- 5. 寮生の画面 ----------
+  const WD = ["日", "月", "火", "水", "木", "金", "土"];
+  const CHIP_COLORS = ["#d9483b", "#c9741a", "#3f9a5f", "#3b7dd8", "#7d5bc9", "#cc4f86", "#228f8f", "#7a8230"];
+
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+  function dateKey(d) { return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); }
+  function parseKey(k) { const p = k.split("-"); return new Date(+p[0], +p[1] - 1, +p[2]); }
+  function dayLabel(k) {
+    const d = parseKey(k);
+    return (d.getMonth() + 1) + "月" + d.getDate() + "日(" + WD[d.getDay()] + ")";
+  }
+  function colorFor(name) {
+    let h = 0;
+    for (const ch of name) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+    return CHIP_COLORS[h % CHIP_COLORS.length];
+  }
+  function paidKeyOf(g) { return g.date + "|" + g.name; }
+  function setPaid(g, on) {
+    const map = loadPaid();
+    if (on) map[paidKeyOf(g)] = g.total;
+    else delete map[paidKeyOf(g)];
+    savePaid(map);
+  }
+
+  // 注文を「日付 → 人 → 合計」にまとめる(同じ日に同じ人が2回頼んでも1つになる)
+  function buildDays(rows) {
+    const days = new Map();
+    rows.forEach((o) => {
+      const k = dateKey(new Date(o.created_at));
+      if (!days.has(k)) days.set(k, new Map());
+      const day = days.get(k);
+      if (!day.has(o.customer_name)) {
+        day.set(o.customer_name, { name: o.customer_name, date: k, total: 0, items: {}, ids: [] });
+      }
+      const g = day.get(o.customer_name);
+      g.total += o.total;
+      if (o.order_id) g.ids.push(o.order_id);
+      o.items.forEach((it) => { g.items[it.name] = (g.items[it.name] || 0) + it.qty; });
+    });
+    return days;
+  }
+
+  // ---- 部屋にいる人の名前(寮生・寮生でない人の両方の画面で使う) ----
+  function renderMembers(box, list, failed, kickable) {
+    box.textContent = "";
+    box.append(el("div", "members-title", "この部屋の人"));
+    if (failed) { box.append(el("div", "empty", "名前の一覧を読み込めませんでした。")); return; }
+    if (!list) { box.append(el("div", "empty", "読み込み中…")); return; }
+    const sorted = list.slice().sort((a, b) =>
+      (b.is_owner ? 1 : 0) - (a.is_owner ? 1 : 0) || a.member_name.localeCompare(b.member_name, "ja"));
+    const wrap = el("div", "members-list");
+    sorted.forEach((m) => {
+      const tags = [];
+      if (m.is_owner) tags.push("寮生");
+      if (m.member_name === state.name) tags.push("あなた");
+      const text = m.member_name + (tags.length ? "(" + tags.join("・") + ")" : "");
+      const chip = el("span", "member-chip" + (m.is_owner ? " owner" : ""), text);
+      if (kickable && !m.is_owner) {
+        const x = el("button", "chip-x", "×");
+        x.type = "button";
+        x.setAttribute("aria-label", m.member_name + "さんを退出させる");
+        x.onclick = () => kickMember(m.member_name);
+        chip.append(x);
+      }
+      wrap.append(chip);
+    });
+    box.append(wrap);
+  }
+
+  async function syncMembers() {
+    const box = $("order-members");
+    renderMembers(box, null, false);
+    const j = await sb.rpc("join_room", { p_password: state.password, p_name: state.name });
+    if (j.error && String(j.error.message || "").includes("kicked")) { kickedOut(); return; }
+    const { data, error } = await sb.rpc("get_members", { p_password: state.password });
+    renderMembers(box, error ? null : (data || []), !!error);
+  }
+
   function openDash() {
     $("dash-who").textContent = "寮生: " + state.name;
     $("dash-error").textContent = "";
     state.lastSig = null;
+    state.sheet = null;
+    state.days = new Map();
+    state.members = null;
+    const now = new Date();
+    state.calMonth = { y: now.getFullYear(), m: now.getMonth() };
+    $("sheet").hidden = true;
+    setTab("today");
+    renderMembers($("dash-members"), null, false);
     show("dash");
     loadOrders();
     state.timer = setInterval(loadOrders, 5000);
   }
 
+  function setTab(t) {
+    state.tab = t;
+    $("pane-today").hidden = t !== "today";
+    $("pane-cal").hidden = t !== "cal";
+    $("tab-today").classList.toggle("active", t === "today");
+    $("tab-cal").classList.toggle("active", t === "cal");
+  }
+
   async function loadOrders() {
-    const { data, error } = await sb.rpc("get_orders", { p_password: state.password });
-    if (error) { $("dash-error").textContent = errorText(error); return; }
+    const [o, m, b] = await Promise.all([
+      sb.rpc("get_orders", { p_password: state.password }),
+      sb.rpc("get_members", { p_password: state.password }),
+      sb.rpc("get_blocked", { p_password: state.password })
+    ]);
+    if (o.error) { $("dash-error").textContent = errorText(o.error); return; }
     $("dash-error").textContent = "";
-    const rows = data || [];
-    const sig = JSON.stringify(rows);
+    const rows = o.data || [];
+    const members = m.error ? null : (m.data || []);
+    const blocked = b.error ? null : (b.data || []);
+    const sig = JSON.stringify([rows, members, blocked, dateKey(new Date())]);
     // 中身が変わっていない間や、スライド操作中は画面を作り直さない
     if (!state.dragging && sig !== state.lastSig) {
       state.lastSig = sig;
-      renderDash(rows);
+      state.days = buildDays(rows);
+      state.members = members;
+      state.blocked = blocked;
+      renderAll();
     }
-    const now = new Date();
     $("dash-updated").textContent =
-      "5秒ごとに自動で更新(最終更新 " + now.toLocaleTimeString("ja-JP") + ")";
+      "5秒ごとに自動で更新(最終更新 " + new Date().toLocaleTimeString("ja-JP") + ")";
+  }
+
+  function renderAll() {
+    renderMembers($("dash-members"), state.members, state.members === null, true);
+    renderBlocked();
+    renderToday();
+    renderCalendar();
+    renderSheet();
+  }
+
+  // ---------- メンバーを退出させる ----------
+  async function kickMember(name) {
+    if (!confirm(name + "さんを部屋から退出させますか?\n同じ名前では、もう入れなくなります。(注文の記録は残ります)")) return;
+    const { error } = await sb.rpc("kick_member", { p_password: state.password, p_name: name });
+    if (error) { $("dash-error").textContent = errorText(error); return; }
+    state.lastSig = null;
+    loadOrders();
+  }
+
+  async function unblockMember(name) {
+    const { error } = await sb.rpc("unblock_member", { p_password: state.password, p_name: name });
+    if (error) { $("dash-error").textContent = errorText(error); return; }
+    state.lastSig = null;
+    loadOrders();
+  }
+
+  function renderBlocked() {
+    const box = $("dash-blocked");
+    const list = state.blocked;
+    box.textContent = "";
+    if (!list || list.length === 0) { box.hidden = true; return; }
+    box.hidden = false;
+    box.append(el("div", "members-title", "退出させた人(同じ名前では入れません)"));
+    const wrap = el("div", "members-list");
+    list.forEach((b) => {
+      const chip = el("span", "member-chip blocked", b.blocked_name);
+      const ok = el("button", "chip-x chip-ok", "許可");
+      ok.type = "button";
+      ok.onclick = () => unblockMember(b.blocked_name);
+      chip.append(ok);
+      wrap.append(chip);
+    });
+    box.append(wrap);
+  }
+
+  // ---------- カレンダー(TimeTreeふう) ----------
+  function renderCalendar() {
+    const y = state.calMonth.y;
+    const m = state.calMonth.m;
+    $("cal-title").textContent = y + "年" + (m + 1) + "月";
+    const grid = $("cal-grid");
+    grid.textContent = "";
+
+    const w = new Date(y, m, 1).getDay();
+    const dim = new Date(y, m + 1, 0).getDate();
+    const rows = Math.ceil((w + dim) / 7);
+    const todayKey = dateKey(new Date());
+    const paid = loadPaid();
+
+    for (let i = 0; i < rows * 7; i++) {
+      const d = new Date(y, m, 1 - w + i);
+      const k = dateKey(d);
+      const dow = d.getDay();
+      const cell = el("div", "cal-cell" + (d.getMonth() !== m ? " other" : ""));
+      cell.append(el("span",
+        "cal-day" + (dow === 0 ? " sun" : dow === 6 ? " sat" : "") + (k === todayKey ? " today" : ""),
+        String(d.getDate())));
+
+      const day = state.days.get(k);
+      if (day && day.size > 0) {
+        const groups = Array.from(day.values());
+        groups.slice(0, 3).forEach((g) => {
+          const isP = paid[paidKeyOf(g)] === g.total;
+          const chip = el("button", "cal-chip" + (isP ? " paid" : ""), (isP ? "✓" : "") + g.name);
+          chip.type = "button";
+          chip.style.background = colorFor(g.name);
+          chip.onclick = (e) => {
+            e.stopPropagation();
+            openSheet({ type: "person", date: k, name: g.name });
+          };
+          cell.append(chip);
+        });
+        if (groups.length > 3) cell.append(el("div", "cal-more", "+" + (groups.length - 3)));
+        cell.classList.add("has");
+        cell.onclick = () => openSheet({ type: "day", date: k });
+      }
+      grid.append(cell);
+    }
+  }
+
+  function shiftMonth(delta) {
+    const x = new Date(state.calMonth.y, state.calMonth.m + delta, 1);
+    state.calMonth = { y: x.getFullYear(), m: x.getMonth() };
+    renderCalendar();
+  }
+
+  // ---------- 下から出てくる詳細(日の一覧 / 人ごとの注文) ----------
+  function openSheet(s) { state.sheet = s; renderSheet(); }
+  function closeSheet() { state.sheet = null; $("sheet").hidden = true; }
+
+  function renderSheet() {
+    const s = state.sheet;
+    if (!s) { $("sheet").hidden = true; return; }
+    const day = state.days.get(s.date);
+    const body = $("sheet-body");
+    body.textContent = "";
+    const paid = loadPaid();
+
+    if (s.type === "day") {
+      $("sheet-title").textContent = dayLabel(s.date) + "の注文";
+      if (!day || day.size === 0) {
+        body.append(el("div", "empty", "この日の注文はありません。"));
+      } else {
+        let grand = 0;
+        day.forEach((g) => {
+          grand += g.total;
+          const isP = paid[paidKeyOf(g)] === g.total;
+          const row = el("button", "sheet-row");
+          row.type = "button";
+          const dot = el("span", "sheet-dot");
+          dot.style.background = colorFor(g.name);
+          row.append(dot, el("span", "sheet-name", g.name),
+            el("span", "sheet-sub", isP ? "✓ もらった" : "まだ"),
+            el("span", "sheet-amt", yen(g.total)));
+          row.onclick = () => openSheet({ type: "person", date: s.date, name: g.name, from: "day" });
+          body.append(row);
+        });
+        body.append(el("div", "sheet-total", "合計 " + yen(grand)));
+      }
+    } else {
+      $("sheet-title").textContent = s.name + "さん";
+      if (s.from === "day") {
+        const back = el("button", "sheet-back", "← この日の一覧へ");
+        back.type = "button";
+        back.onclick = () => openSheet({ type: "day", date: s.date });
+        body.append(back);
+      }
+      body.append(el("div", "sheet-date", dayLabel(s.date)));
+      const g = day && day.get(s.name);
+      if (!g) {
+        body.append(el("div", "empty", "この注文は見つかりません。"));
+      } else {
+        const isP = paid[paidKeyOf(g)] === g.total;
+        body.append(el("div", "pill " + (isP ? "ok" : "no"),
+          isP ? "✓ お金をもらいました" : "まだお金をもらっていません"));
+
+        const card = el("div", "card");
+        Object.keys(g.items).forEach((n) => {
+          const r = el("div", "row");
+          r.append(el("span", "", n + " × " + g.items[n]));
+          card.append(r);
+        });
+        const t = el("div", "row");
+        t.append(el("span", "name", "合計"), el("span", "name", yen(g.total)));
+        card.append(t);
+        body.append(card);
+
+        const label = el("label", "pay-row sheet-check");
+        const cb = el("input");
+        cb.type = "checkbox";
+        cb.checked = isP;
+        cb.onchange = () => { setPaid(g, cb.checked); renderAll(); };
+        label.append(cb, el("span", "name", "お金をもらった(チェック)"));
+        body.append(label);
+      }
+    }
+    $("sheet").hidden = false;
   }
 
   // ---- チェック済みの枠を横にスライドして削除 ----
@@ -350,11 +648,14 @@
     }, true);
   }
 
-  async function deleteCustomer(name) {
-    const { error } = await sb.rpc("delete_customer_orders", {
-      p_password: state.password,
-      p_customer: name
-    });
+  async function deleteGroup(grp) {
+    if (!grp.ids.length) {
+      state.dragging = false;
+      $("dash-error").textContent = errorText({ message: "delete_orders" });
+      renderAll();
+      return;
+    }
+    const { error } = await sb.rpc("delete_orders", { p_password: state.password, p_ids: grp.ids });
     state.lastSig = null;
     if (error) {
       await loadOrders();
@@ -362,83 +663,75 @@
       return;
     }
     const map = loadPaid();
-    delete map[name];
+    delete map[paidKeyOf(grp)];
     savePaid(map);
     loadOrders();
   }
 
-  function itemsText(items) {
-    return items.map((it) => it.name + " × " + it.qty).join("、");
-  }
-
-  function renderDash(orders) {
+  // ---------- 「今日」タブ(今日の注文だけ) ----------
+  function renderToday() {
     const sumBox = $("dash-summary");
     const listBox = $("dash-list");
     sumBox.textContent = "";
     listBox.textContent = "";
+    const todayKey = dateKey(new Date());
+    $("today-label").textContent =
+      "今日(" + dayLabel(todayKey) + ")の注文だけ表示しています。ほかの日は「カレンダー」で見られます。";
 
-    if (orders.length === 0) {
-      sumBox.append(el("div", "empty", "まだ注文はありません。"));
+    const day = state.days.get(todayKey);
+    if (!day || day.size === 0) {
+      sumBox.append(el("div", "empty", "今日の注文はまだありません。"));
       return;
     }
+    const groups = Array.from(day.values());
 
     const counts = {};
     let grand = 0;
-    orders.forEach((o) => {
-      grand += o.total;
-      o.items.forEach((it) => { counts[it.name] = (counts[it.name] || 0) + it.qty; });
+    groups.forEach((g) => {
+      grand += g.total;
+      Object.keys(g.items).forEach((n) => { counts[n] = (counts[n] || 0) + g.items[n]; });
     });
-    Object.keys(counts).forEach((name) => {
+    Object.keys(counts).forEach((n) => {
       const r = el("div", "row");
-      r.append(el("span", "", name), el("span", "name", counts[name] + "枚"));
+      r.append(el("span", "", n), el("span", "name", counts[n] + "枚"));
       sumBox.append(r);
     });
-    const g = el("div", "row");
-    g.append(el("span", "name", "合計金額"), el("span", "name", yen(grand)));
-    sumBox.append(g);
-
-    // 同じ名前の注文は1つの枠にまとめる
-    const groups = new Map();
-    orders.forEach((o) => {
-      if (!groups.has(o.customer_name)) {
-        groups.set(o.customer_name, { name: o.customer_name, total: 0, items: {} });
-      }
-      const grp = groups.get(o.customer_name);
-      grp.total += o.total;
-      o.items.forEach((it) => { grp.items[it.name] = (grp.items[it.name] || 0) + it.qty; });
-    });
+    const gt = el("div", "row");
+    gt.append(el("span", "name", "合計金額"), el("span", "name", yen(grand)));
+    sumBox.append(gt);
 
     const paid = loadPaid();
     groups.forEach((grp) => {
       // チェック時の金額と今の合計が同じときだけ「もらった」扱い(追加注文があればチェックが外れる)
-      const isPaid = paid[grp.name] === grp.total;
+      const isPaid = paid[paidKeyOf(grp)] === grp.total;
       const card = el("div", "card" + (isPaid ? " paid" : ""));
 
       const label = el("label", "pay-row");
       const check = el("input");
       check.type = "checkbox";
       check.checked = isPaid;
-      check.onchange = () => {
-        const map = loadPaid();
-        if (check.checked) map[grp.name] = grp.total;
-        else delete map[grp.name];
-        savePaid(map);
-        card.classList.toggle("paid", check.checked);
-      };
-      label.append(
-        check,
-        el("span", "name", grp.name + "から"),
-        el("span", "pay-amount", yen(grp.total))
-      );
+      check.onchange = () => { setPaid(grp, check.checked); renderAll(); };
+      label.append(check, el("span", "name", grp.name + "から"), el("span", "pay-amount", yen(grp.total)));
 
       const detail = Object.keys(grp.items).map((n) => n + " × " + grp.items[n]).join("、");
       card.append(label, el("div", "sub", detail), el("div", "swipe-hint", "← 横にスライドして削除 →"));
-      enableSwipe(card, () => deleteCustomer(grp.name));
+      enableSwipe(card, () => deleteGroup(grp));
       listBox.append(card);
     });
   }
 
   $("btn-leave-dash").onclick = leaveRoom;
+  $("tab-today").onclick = () => setTab("today");
+  $("tab-cal").onclick = () => { setTab("cal"); renderCalendar(); };
+  $("cal-prev").onclick = () => shiftMonth(-1);
+  $("cal-next").onclick = () => shiftMonth(1);
+  $("cal-today").onclick = () => {
+    const n = new Date();
+    state.calMonth = { y: n.getFullYear(), m: n.getMonth() };
+    renderCalendar();
+  };
+  $("sheet-close").onclick = closeSheet;
+  $("sheet-backdrop").onclick = closeSheet;
 
   renderMenu();
 

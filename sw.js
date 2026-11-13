@@ -1,8 +1,8 @@
-// Service Worker(Ver0.8)
+// Service Worker(Ver1.0)
 // ・サイトの部品(HTML/CSS/JS/アイコン)を端末に保存して、起動を速くする
 // ・更新があるときは、まずネットから最新を取る(古い版が残らないようにする)
 // ・Supabaseへの通信(注文データ)は保存せず、いつも直接ネットに接続する
-const VERSION = "0.8";
+const VERSION = "1.0";
 const CACHE = "shokken-" + VERSION;
 
 const SHELL = [

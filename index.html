@@ -12,7 +12,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="食券たのむ">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="stylesheet" href="style.css?v=0.8">
+  <link rel="stylesheet" href="style.css?v=1.0">
 </head>
 <body>
 <main>
@@ -47,6 +47,7 @@
   <section id="view-order" hidden>
     <h1>注文する</h1>
     <p id="order-who" class="lead"></p>
+    <div id="order-members" class="card members"></div>
     <p class="hint">ボタンを押すと1枚ずつ増えます(1つの料理につき4枚まで。5回押すと0枚に戻ります)。</p>
     <div id="menu" class="menu-grid"></div>
     <h2>選んだもの</h2>
@@ -77,10 +78,36 @@
   <section id="view-dash" hidden>
     <h1>みんなの注文</h1>
     <p id="dash-who" class="lead"></p>
-    <h2>買う数の合計</h2>
-    <div id="dash-summary" class="card"></div>
-    <h2>人ごとの注文(お金をもらったらチェック)</h2>
-    <div id="dash-list"></div>
+    <div id="dash-members" class="card members"></div>
+    <div id="dash-blocked" class="card members" hidden></div>
+
+    <div class="tabs">
+      <button type="button" id="tab-today" class="tab active">今日</button>
+      <button type="button" id="tab-cal" class="tab">カレンダー</button>
+    </div>
+
+    <div id="pane-today">
+      <p id="today-label" class="hint"></p>
+      <h2>買う数の合計</h2>
+      <div id="dash-summary" class="card"></div>
+      <h2>人ごとの注文(お金をもらったらチェック)</h2>
+      <div id="dash-list"></div>
+    </div>
+
+    <div id="pane-cal" hidden>
+      <div class="cal-head">
+        <button type="button" id="cal-prev" class="cal-nav" aria-label="前の月">‹</button>
+        <div id="cal-title" class="cal-title"></div>
+        <button type="button" id="cal-next" class="cal-nav" aria-label="次の月">›</button>
+        <button type="button" id="cal-today" class="cal-todaybtn">今日</button>
+      </div>
+      <div class="cal-week">
+        <span class="sun">日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span class="sat">土</span>
+      </div>
+      <div id="cal-grid" class="cal-grid"></div>
+      <p class="hint">名前をタップすると、注文の内容とお金のチェックがわかります。「+数字」や日付の空きをタップすると、その日の全員が見られます。</p>
+    </div>
+
     <p id="dash-updated" class="hint"></p>
     <div id="dash-error" class="error"></div>
     <button type="button" id="btn-leave-dash" class="link">部屋から出る</button>
@@ -88,9 +115,21 @@
 
 </main>
 
+  <!-- 下から出てくる詳細 -->
+  <div id="sheet" class="sheet" hidden>
+    <div id="sheet-backdrop" class="sheet-backdrop"></div>
+    <div class="sheet-panel">
+      <div class="sheet-head">
+        <h2 id="sheet-title"></h2>
+        <button type="button" id="sheet-close" class="sheet-close" aria-label="閉じる">×</button>
+      </div>
+      <div id="sheet-body"></div>
+    </div>
+  </div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="config.js?v=0.8"></script>
-<script src="app.js?v=0.8"></script>
+<script src="config.js?v=1.0"></script>
+<script src="app.js?v=1.0"></script>
 <script>
   // PWA: Service Worker を登録(ホーム画面への追加・起動の高速化)
   if ("serviceWorker" in navigator) {
