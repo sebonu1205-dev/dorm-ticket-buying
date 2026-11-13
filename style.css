@@ -209,3 +209,18 @@ input[type="checkbox"] {
 
 /* ---- 退出させた人の「削除」ボタン ---- */
 .chip-del { color: #b00020; }
+
+/* ---- 頼んだもの(未払いの注文の確認・編集) ---- */
+.my-orders-btn { display: flex; align-items: center; gap: 8px; width: 100%; margin: 0 0 12px; padding: 12px 14px; border: 1px solid #e3ded3; border-radius: 10px; background: #fff; color: #222; font-size: 1rem; font-weight: 700; text-align: left; }
+.my-orders-btn .my-orders-count { margin-left: auto; color: #c8501e; font-size: 0.9rem; }
+.my-orders-btn .chev { color: #999; font-size: 1.2rem; }
+.my-order-date { margin-bottom: 6px; color: #666; font-size: 0.85rem; }
+.my-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #e8e3d8; }
+.my-item-name { flex: 1; font-weight: 600; }
+.my-item.removed .my-item-name { text-decoration: line-through; opacity: 0.5; }
+.my-qty { display: flex; align-items: center; gap: 8px; }
+.my-item-del { width: auto; margin: 0; padding: 6px 10px; border: 1px solid #b00020; border-radius: 8px; background: #fff; color: #b00020; font-size: 0.8rem; }
+.my-total { padding-top: 8px; text-align: right; font-weight: 700; }
+.my-actions { display: flex; gap: 8px; margin-top: 10px; }
+.my-actions button { flex: 1; width: auto; margin: 0; padding: 12px 6px; font-size: 0.95rem; }
+button.secondary.danger { border-color: #b00020; color: #b00020; }

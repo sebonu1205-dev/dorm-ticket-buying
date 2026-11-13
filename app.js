@@ -28,15 +28,6 @@
     } catch (e) {}
     return null;
   }
-  // ---- 「お金をもらった」チェックの保存(この端末の中だけ) ----
-  function paidKey() { return "dorm_paid_" + state.password; }
-  function loadPaid() {
-    try { return JSON.parse(localStorage.getItem(paidKey()) || "{}") || {}; } catch (e) { return {}; }
-  }
-  function savePaid(map) {
-    try { localStorage.setItem(paidKey(), JSON.stringify(map)); } catch (e) {}
-  }
-
   // ポップアップ(画面の真ん中にメッセージを出して、OKで閉じる)
   function showPopup(message) {
     $("popup-text").textContent = message;
@@ -98,6 +89,9 @@
     if (/join_room|get_members|delete_orders/.test(m)) return "新しいSQLがまだ実行されていません。supabase_add_calendar.sql をSupabaseで実行してください。";
     if (/kick_member|unblock_member|get_blocked/.test(m)) return "新しいSQLがまだ実行されていません。supabase_add_kick.sql をSupabaseで実行してください。";
     if (/delete_blocked/.test(m)) return "新しいSQLがまだ実行されていません。supabase_add_forget.sql をSupabaseで実行してください。";
+    if (/set_paid|get_my_orders|update_my_order/.test(m)) return "新しいSQLがまだ実行されていません。supabase_add_edit.sql をSupabaseで実行してください。";
+    if (m.includes("already_paid")) return "この注文は、お金を受け取られているので変更できません。";
+    if (m.includes("order_not_found")) return "この注文は見つかりません。すでに削除されているかもしれません。";
     if (m.includes("kicked")) return "この部屋から退出させられました。";
     if (m.includes("delete_customer_orders")) return "削除用のSQLがまだ実行されていません。supabase_add_delete.sql をSupabaseで実行してください。";
     return "通信に失敗しました。時間をおいてもう一度試してください。" + (m ? "(" + m + ")" : "");
@@ -289,6 +283,7 @@
     box.append(t);
     $("done-pay").textContent = state.owner + "に" + yen(total) + "渡してください";
     show("done");
+    refreshMyCount();
   };
 
   $("btn-leave-order").onclick = leaveRoom;
@@ -299,6 +294,108 @@
     syncMembers();
   };
   $("btn-leave-done").onclick = leaveRoom;
+
+  // ---------- 頼んだもの(お金をまだ渡していない注文の確認・編集) ----------
+  async function fetchMyOrders() {
+    const { data, error } = await sb.rpc("get_my_orders", { p_password: state.password, p_customer: state.name });
+    return error ? { error: error } : { data: data || [] };
+  }
+
+  async function refreshMyCount() {
+    const r = await fetchMyOrders();
+    $("my-orders-count").textContent = (!r.error && r.data.length) ? r.data.length + "件" : "";
+  }
+
+  async function openMyOrders() {
+    $("sheet-title").textContent = "頼んだもの";
+    $("sheet-body").textContent = "";
+    $("sheet-body").append(el("div", "empty", "読み込み中…"));
+    state.sheet = null;
+    $("sheet").hidden = false;
+    renderMyOrders(await fetchMyOrders());
+  }
+
+  async function reloadMyOrders() { renderMyOrders(await fetchMyOrders()); }
+
+  function renderMyOrders(r) {
+    const body = $("sheet-body");
+    body.textContent = "";
+    if (r.error) { body.append(el("div", "empty", errorText(r.error))); return; }
+    $("my-orders-count").textContent = r.data.length ? r.data.length + "件" : "";
+    body.append(el("div", "hint", "お金をまだ渡していない注文だけ表示しています。数を変えたり、料理を削除したりできます。"));
+    if (r.data.length === 0) { body.append(el("div", "empty", "お金が未払いの注文はありません。")); return; }
+    r.data.forEach((o) => body.append(myOrderCard(o)));
+  }
+
+  function myOrderCard(o) {
+    const draft = o.items.map((it) => ({ name: it.name, price: it.price, qty: it.qty }));
+    const dt = new Date(o.created_at);
+    const when = (dt.getMonth() + 1) + "/" + dt.getDate() + " " + pad2(dt.getHours()) + ":" + pad2(dt.getMinutes());
+    const card = el("div", "card my-order");
+
+    async function send(items) {
+      const { error } = await sb.rpc("update_my_order", {
+        p_password: state.password, p_customer: state.name, p_order_id: o.order_id, p_items: items
+      });
+      if (error) {
+        if (String(error.message || "").includes("kicked")) { kickedOut(); return; }
+        showPopup(errorText(error));
+      }
+      reloadMyOrders();
+    }
+
+    function draw() {
+      card.textContent = "";
+      card.append(el("div", "my-order-date", when + " の注文"));
+      let total = 0;
+      let changed = false;
+      draft.forEach((it, i) => {
+        total += it.price * it.qty;
+        if (it.qty !== o.items[i].qty) changed = true;
+        const row = el("div", "my-item" + (it.qty === 0 ? " removed" : ""));
+        row.append(el("span", "my-item-name", it.name));
+
+        const ctl = el("span", "my-qty");
+        const minus = el("button", "qty-btn", "−");
+        minus.type = "button";
+        minus.onclick = () => { it.qty = Math.max(0, it.qty - 1); draw(); };
+        const plus = el("button", "qty-btn", "+");
+        plus.type = "button";
+        plus.onclick = () => { it.qty = Math.min(MAX_QTY, it.qty + 1); draw(); };
+        ctl.append(minus, el("span", "qty-num", String(it.qty)), plus);
+
+        const del = el("button", "my-item-del", "削除");
+        del.type = "button";
+        del.onclick = () => { it.qty = 0; draw(); };
+        row.append(ctl, del);
+        card.append(row);
+      });
+      card.append(el("div", "my-total", "合計 " + yen(total)));
+
+      const actions = el("div", "my-actions");
+      const save = el("button", "primary", "変更を保存");
+      save.type = "button";
+      save.disabled = !changed;
+      save.onclick = () => {
+        const items = draft.filter((it) => it.qty > 0);
+        if (items.length === 0 && !confirm("すべての料理を削除すると、この注文は取り消されます。よろしいですか?")) return;
+        save.disabled = true;
+        send(items);
+      };
+      const cancel = el("button", "secondary danger", "注文を取り消す");
+      cancel.type = "button";
+      cancel.onclick = () => {
+        if (!confirm("この注文を取り消しますか?")) return;
+        cancel.disabled = true;
+        send([]);
+      };
+      actions.append(save, cancel);
+      card.append(actions);
+    }
+
+    draw();
+    return card;
+  }
 
   // ---------- 5. 寮生の画面 ----------
   const WD = ["日", "月", "火", "水", "木", "金", "土"];
@@ -316,12 +413,14 @@
     for (const ch of name) h = (h * 31 + ch.codePointAt(0)) >>> 0;
     return CHIP_COLORS[h % CHIP_COLORS.length];
   }
-  function paidKeyOf(g) { return g.date + "|" + g.name; }
-  function setPaid(g, on) {
-    const map = loadPaid();
-    if (on) map[paidKeyOf(g)] = g.total;
-    else delete map[paidKeyOf(g)];
-    savePaid(map);
+  // お金をもらったチェック(サーバーに保存。その人のその日の注文すべてに付く)
+  async function setPaid(g, on) {
+    g.paid = on;
+    renderAll();
+    const { error } = await sb.rpc("set_paid", { p_password: state.password, p_ids: g.ids, p_paid: on });
+    state.lastSig = null;
+    await loadOrders();
+    if (error) $("dash-error").textContent = errorText(error);
   }
 
   // 注文を「日付 → 人 → 合計」にまとめる(同じ日に同じ人が2回頼んでも1つになる)
@@ -332,11 +431,12 @@
       if (!days.has(k)) days.set(k, new Map());
       const day = days.get(k);
       if (!day.has(o.customer_name)) {
-        day.set(o.customer_name, { name: o.customer_name, date: k, total: 0, items: {}, ids: [] });
+        day.set(o.customer_name, { name: o.customer_name, date: k, total: 0, items: {}, ids: [], paid: true });
       }
       const g = day.get(o.customer_name);
       g.total += o.total;
       if (o.order_id) g.ids.push(o.order_id);
+      if (!o.paid) g.paid = false;
       o.items.forEach((it) => { g.items[it.name] = (g.items[it.name] || 0) + it.qty; });
     });
     return days;
@@ -376,6 +476,7 @@
     if (j.error && String(j.error.message || "").includes("kicked")) { kickedOut(); return; }
     const { data, error } = await sb.rpc("get_members", { p_password: state.password });
     renderMembers(box, error ? null : (data || []), !!error);
+    refreshMyCount();
   }
 
   function openDash() {
@@ -494,7 +595,6 @@
     const dim = new Date(y, m + 1, 0).getDate();
     const rows = Math.ceil((w + dim) / 7);
     const todayKey = dateKey(new Date());
-    const paid = loadPaid();
 
     for (let i = 0; i < rows * 7; i++) {
       const d = new Date(y, m, 1 - w + i);
@@ -509,7 +609,7 @@
       if (day && day.size > 0) {
         const groups = Array.from(day.values());
         groups.slice(0, 3).forEach((g) => {
-          const isP = paid[paidKeyOf(g)] === g.total;
+          const isP = g.paid;
           const chip = el("button", "cal-chip" + (isP ? " paid" : ""), (isP ? "✓" : "") + g.name);
           chip.type = "button";
           chip.style.background = colorFor(g.name);
@@ -543,7 +643,6 @@
     const day = state.days.get(s.date);
     const body = $("sheet-body");
     body.textContent = "";
-    const paid = loadPaid();
 
     if (s.type === "day") {
       $("sheet-title").textContent = dayLabel(s.date) + "の注文";
@@ -553,7 +652,7 @@
         let grand = 0;
         day.forEach((g) => {
           grand += g.total;
-          const isP = paid[paidKeyOf(g)] === g.total;
+          const isP = g.paid;
           const row = el("button", "sheet-row");
           row.type = "button";
           const dot = el("span", "sheet-dot");
@@ -579,7 +678,7 @@
       if (!g) {
         body.append(el("div", "empty", "この注文は見つかりません。"));
       } else {
-        const isP = paid[paidKeyOf(g)] === g.total;
+        const isP = g.paid;
         body.append(el("div", "pill " + (isP ? "ok" : "no"),
           isP ? "✓ お金をもらいました" : "まだお金をもらっていません"));
 
@@ -598,7 +697,7 @@
         const cb = el("input");
         cb.type = "checkbox";
         cb.checked = isP;
-        cb.onchange = () => { setPaid(g, cb.checked); renderAll(); };
+        cb.onchange = () => { setPaid(g, cb.checked); };
         label.append(cb, el("span", "name", "お金をもらった(チェック)"));
         body.append(label);
       }
@@ -684,9 +783,6 @@
       $("dash-error").textContent = errorText(error);
       return;
     }
-    const map = loadPaid();
-    delete map[paidKeyOf(grp)];
-    savePaid(map);
     loadOrders();
   }
 
@@ -722,17 +818,16 @@
     gt.append(el("span", "name", "合計金額"), el("span", "name", yen(grand)));
     sumBox.append(gt);
 
-    const paid = loadPaid();
     groups.forEach((grp) => {
       // チェック時の金額と今の合計が同じときだけ「もらった」扱い(追加注文があればチェックが外れる)
-      const isPaid = paid[paidKeyOf(grp)] === grp.total;
+      const isPaid = grp.paid;
       const card = el("div", "card" + (isPaid ? " paid" : ""));
 
       const label = el("label", "pay-row");
       const check = el("input");
       check.type = "checkbox";
       check.checked = isPaid;
-      check.onchange = () => { setPaid(grp, check.checked); renderAll(); };
+      check.onchange = () => { setPaid(grp, check.checked); };
       label.append(check, el("span", "name", grp.name + "から"), el("span", "pay-amount", yen(grp.total)));
 
       const detail = Object.keys(grp.items).map((n) => n + " × " + grp.items[n]).join("、");
@@ -755,6 +850,8 @@
   $("sheet-close").onclick = closeSheet;
   $("sheet-backdrop").onclick = closeSheet;
   $("popup-ok").onclick = () => { $("popup").hidden = true; };
+  $("btn-my-orders").onclick = openMyOrders;
+  $("btn-done-my").onclick = openMyOrders;
 
   renderMenu();
 

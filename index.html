@@ -12,7 +12,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="食券たのむ">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="stylesheet" href="style.css?v=1.2">
+  <link rel="stylesheet" href="style.css?v=1.3">
 </head>
 <body>
 <main>
@@ -48,6 +48,9 @@
     <h1>注文する</h1>
     <p id="order-who" class="lead"></p>
     <div id="order-members" class="card members"></div>
+    <button type="button" id="btn-my-orders" class="my-orders-btn">
+      <span>頼んだもの</span><span id="my-orders-count" class="my-orders-count"></span><span class="chev">›</span>
+    </button>
     <p class="hint">ボタンを押すと1枚ずつ増えます(1つの料理につき4枚まで。5回押すと0枚に戻ります)。</p>
     <div id="menu" class="menu-grid"></div>
     <h2>選んだもの</h2>
@@ -70,6 +73,7 @@
     <h1>注文しました</h1>
     <p id="done-pay" class="pay-note"></p>
     <div id="done-summary" class="card"></div>
+    <button type="button" id="btn-done-my" class="secondary">頼んだものを見る・編集</button>
     <button type="button" id="btn-again" class="secondary">もう一度注文する</button>
     <button type="button" id="btn-leave-done" class="link">部屋から出る</button>
   </section>
@@ -137,8 +141,8 @@
   </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="config.js?v=1.2"></script>
-<script src="app.js?v=1.2"></script>
+<script src="config.js?v=1.3"></script>
+<script src="app.js?v=1.3"></script>
 <script>
   // PWA: Service Worker を登録(ホーム画面への追加・起動の高速化)
   if ("serviceWorker" in navigator) {
