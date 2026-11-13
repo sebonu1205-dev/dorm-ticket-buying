@@ -37,6 +37,13 @@
     try { localStorage.setItem(paidKey(), JSON.stringify(map)); } catch (e) {}
   }
 
+  // ポップアップ(画面の真ん中にメッセージを出して、OKで閉じる)
+  function showPopup(message) {
+    $("popup-text").textContent = message;
+    $("popup").hidden = false;
+    $("popup-ok").focus();
+  }
+
   // 寮生に退出させられたとき(注文する人の画面から、最初の画面へ戻す)
   function kickedOut() {
     clearSession();
@@ -45,7 +52,8 @@
     state.cart = {};
     state.history = [];
     show("home");
-    $("home-error").textContent = "この部屋から退出させられました。";
+    $("home-error").textContent = "";
+    showPopup("この部屋から退出させられました。");
   }
 
   function leaveRoom() {
@@ -89,6 +97,7 @@
     if (m.includes("room_not_found")) return "部屋が見つかりません。パスワードを確認してください。";
     if (/join_room|get_members|delete_orders/.test(m)) return "新しいSQLがまだ実行されていません。supabase_add_calendar.sql をSupabaseで実行してください。";
     if (/kick_member|unblock_member|get_blocked/.test(m)) return "新しいSQLがまだ実行されていません。supabase_add_kick.sql をSupabaseで実行してください。";
+    if (/delete_blocked/.test(m)) return "新しいSQLがまだ実行されていません。supabase_add_forget.sql をSupabaseで実行してください。";
     if (m.includes("kicked")) return "この部屋から退出させられました。";
     if (m.includes("delete_customer_orders")) return "削除用のSQLがまだ実行されていません。supabase_add_delete.sql をSupabaseで実行してください。";
     return "通信に失敗しました。時間をおいてもう一度試してください。" + (m ? "(" + m + ")" : "");
@@ -152,7 +161,8 @@
     if (state.role !== "resident") {
       const j = await sb.rpc("join_room", { p_password: pw, p_name: state.name });
       if (j.error && String(j.error.message || "").includes("kicked")) {
-        $("pw-error").textContent = "この部屋には入れません。寮生に退出させられています。";
+        $("pw-error").textContent = "";
+        showPopup("この部屋には入れません。寮生に退出させられています。");
         return;
       }
     }
@@ -441,6 +451,14 @@
     loadOrders();
   }
 
+  async function deleteBlocked(name) {
+    if (!confirm(name + "さんの名前を一覧から消しますか?\n同じ名前でも、また部屋に入れるようになります。(注文の記録は残ります)")) return;
+    const { error } = await sb.rpc("delete_blocked", { p_password: state.password, p_name: name });
+    if (error) { $("dash-error").textContent = errorText(error); return; }
+    state.lastSig = null;
+    loadOrders();
+  }
+
   function renderBlocked() {
     const box = $("dash-blocked");
     const list = state.blocked;
@@ -448,13 +466,17 @@
     if (!list || list.length === 0) { box.hidden = true; return; }
     box.hidden = false;
     box.append(el("div", "members-title", "退出させた人(同じ名前では入れません)"));
+    box.append(el("div", "hint", "許可: メンバーに戻す / 削除: 名前を消す(同じ名前でまた入れます)"));
     const wrap = el("div", "members-list");
     list.forEach((b) => {
       const chip = el("span", "member-chip blocked", b.blocked_name);
       const ok = el("button", "chip-x chip-ok", "許可");
       ok.type = "button";
       ok.onclick = () => unblockMember(b.blocked_name);
-      chip.append(ok);
+      const del = el("button", "chip-x chip-del", "削除");
+      del.type = "button";
+      del.onclick = () => deleteBlocked(b.blocked_name);
+      chip.append(ok, del);
       wrap.append(chip);
     });
     box.append(wrap);
@@ -732,6 +754,7 @@
   };
   $("sheet-close").onclick = closeSheet;
   $("sheet-backdrop").onclick = closeSheet;
+  $("popup-ok").onclick = () => { $("popup").hidden = true; };
 
   renderMenu();
 

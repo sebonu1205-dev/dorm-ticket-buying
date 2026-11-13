@@ -195,3 +195,17 @@ input[type="checkbox"] {
 .chip-x { display: inline-block; width: auto; margin: 0 0 0 6px; padding: 0 6px; border-radius: 10px; background: rgba(0, 0, 0, 0.08); color: #666; font-size: 0.95rem; font-weight: 700; line-height: 1.4; }
 .chip-ok { font-size: 0.75rem; }
 .member-chip.blocked { background: #f3dcdc; color: #8a2b2b; }
+
+/* ---- ポップアップ ---- */
+.popup { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.popup-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.5); }
+.popup-box { position: relative; width: 100%; max-width: 340px; padding: 22px 20px 18px; background: #fff; border-radius: 14px; text-align: center; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3); }
+.popup-box p { margin: 0 0 14px; font-size: 1.05rem; font-weight: 700; line-height: 1.6; }
+.popup-box button { margin-top: 0; }
+
+/* ---- スクロールバーを隠す(スクロール自体はできます) ---- */
+* { scrollbar-width: none; -ms-overflow-style: none; }
+*::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
+/* ---- 退出させた人の「削除」ボタン ---- */
+.chip-del { color: #b00020; }
